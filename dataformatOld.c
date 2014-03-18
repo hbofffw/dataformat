@@ -377,7 +377,6 @@ int sensor_incomingPktProcessing(void)
     cumt_instruction* inst;
     int flag=0;                   //function return flag
     int len;
-    len = cc2530_rf_driver.pending_packet();
     if(len)
     {
         packetbuf_clear();

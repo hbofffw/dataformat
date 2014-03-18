@@ -39,15 +39,13 @@
 typedef struct packetbufListStruct
 {
     struct packetbufListStruct *next;
-    rimeaddr_t *addr;
-    void *bufCache;
+    void *framebuf;
     int dataLen;
-    int dataType;
 }packetbufListStruct_t;
 
 
 LIST(packetbuf_list);
-MEMB(packetbuf_memb, struct packetbufListStruct, 4);
+MEMB(packetbuf_memb, struct packetbufListStruct, 10);
 //--------------------------------------
 
 //--------routing table ------------
@@ -90,10 +88,6 @@ typedef struct {
 //---------------------------------------------------------------
 
 
-//------list processing-------------
-void toOutgoingList(void *s);
-void extractFromList(list_t t);
-//----------------------------------
 
 //-------address identification-------------
 int is_broadcast_addr(uint8_t *addr);
@@ -105,9 +99,17 @@ int sensor_incomingPacketProcessing(void);
 int coord_incomingPacketProcessing(void);
 //-------------------------------------------------
 
+//------list processing-------------
+void toPacketbufList(void *f, int datatogoLen);    //data should be ready to be sent, should not be called directly
+//----------------------------------
+
 //--------------for out going packet --------------
-int prepareList(void *dataPnt, int dataLen);
-int sendList(list_t bufList);
+int buildBufflist(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop);
+int buildForwardInstructionList(void *payload, int payloadLen, rimeaddr_t nxthop);
+void popList(void);
+int sendPacket(void *datatogo, int datalen);
+//csma time base
+clock_time_t default_timebase(void);
 //--------------------------------------------------
 
 //-----------------for sensor--------------------

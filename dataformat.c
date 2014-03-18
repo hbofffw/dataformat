@@ -81,23 +81,7 @@ packetListStruct_t *packetBufCache;
 
 //--------------------------------function setting---------------------------------------//
 
-//-------------------list processing-------------------------
 
-void toOutgoingList(rimeaddr_t *datatogoAddr, void *s, int datatogoLen, int datatogoType)
-{
-    packetbufListStruct_t *cache;
-    cache = memb_alloc(&packetbuf_memb);
-    rimeaddr_cmp(cache->addr, dataotogoAddr);
-    cache->bufCache = s;
-    cache->dataLen = datatogoLen;
-    cache->dataType = datatogoType;
-    list_add(packetbuf_list, cache);
-}
-void extractFromList(list_t t)
-{
-
-}
-//----------------------------------
 
 //-------for address identification---------
 int is_broadcast_addr(uint8_t *addr)
@@ -143,6 +127,7 @@ int sensor_incomingPacketProcessing()
             {
                 if(helloRetrans_flag == 0)
                 {
+                    cumt_instruction *inst;
                     //remember the upgoing node address
                     rimeaddr_copy(&upGoingNode,(rimeaddr_t*) &frame.src_addr);
                     inst = (cumt_instruction*)frame.payload;
@@ -150,68 +135,184 @@ int sensor_incomingPacketProcessing()
                     {
                         helloRetrans_flag = 1;   //has already forwarded hello instruction, next time when hello instruction comes, it will drop it 
                         inst->hopCount++;
-                        if(temperatureDataSend(upGoingNode))
-                        {
-                            PUTSTRING("temperature sent\r\n");
-                            flag = 1;
-                        }
-                        //check if this node has retransmitted some packets, if no, retransmit, if once, only update the route table
-                        if(retrans((uint8_t*)inst, sizeof(inst),rimeaddr_null))
-                        {
-                            inst = NULL;
-                            flag = 1;
-                        }
+                        //editing start here
+                        temperatureInpack(upGoingNode);
+                        buildBufflist((uint8_t *)inst, sizeof(*inst), NULL);
                     }
-                }
-                if(sleepRetrans_flag == 0)
-                {
-                    inst = (cumt_instruction *)frame.payload;
-                    if(inst->instructionType == SLEEPMSG)
+                    if(sleepRetrans_flag == 0)
                     {
-                        if(retrans((uint8_t *)inst,sizeof(inst),rimeaddr_null))
+                        cumt_instruction *inst;
+                        inst = (cumt_instruction *)frame.payload;
+                        if(inst->instructionType == SLEEPMSG)
                         {
-                            inst=NULL;
-                            sleepRetrans_flag = 1;  //should be 1
-                            flag = 1;
-                            /***reserved for sleep processing***/
-                            PUTSTRING("into sleep mode\r\n");
-                            process_setSleepCMD(1);
-                            sleepRetrans_flag = 0;
-                            helloRetrans_flag = 0;
+                            if(retrans((uint8_t *)inst,sizeof(inst),rimeaddr_null))
+                            {
+                                inst=NULL;
+                                sleepRetrans_flag = 1;  //should be 1
+                                flag = 1;
+                                /***reserved for sleep processing***/
+                                PUTSTRING("into sleep mode\r\n");
+                                process_setSleepCMD(1);
+                                sleepRetrans_flag = 0;
+                                helloRetrans_flag = 0;
+                            }
                         }
                     }
                 }
-            }
-            if(rimeaddr_cmp((rimeaddr_t *)&frame.dest_addr, &rimeaddr_node_addr))
-            {
-                PUTSTRING("some one send data on me");
-                cumt_temperature *forwardTmp;
-                forwardTmp = (cumt_temperature *)frame.payload;
-                retrans(frame.payload,frame.payload_len,upGoingNode);
-                flag = 1;
-            }
-        }
-    }            //data for me 
+                if(rimeaddr_cmp((rimeaddr_t *)&frame.dest_addr, &rimeaddr_node_addr))
+                {
+                    PUTSTRING("some one send data on me");
+                    cumt_temperature *forwardTmp;
+                    forwardTmp = (cumt_temperature *)frame.payload;
+                    /*retrans(frame.payload,frame.payload_len,upGoingNode);*/
 
-    return flag;
+                    flag = 1;
+                }
+            }
+        }            //data for me 
+
+        return flag;
+    }
 }
 
 int coord_incomingPacketProcessing(void)
 {
-    
+
 }
 //-----------------------------------------------
 
-//--------------for outgoing packet --------------
-int prepareList(void *dataPnt, int dataLen)
+//-------------------list processing-------------------------
+
+void toPacketbufList(void *f, int datatogoLen)
 {
+    packetbufListStruct_t *cache;
+    cache = memb_alloc(&packetbuf_memb);
+    cache->frameBuf = f;
+    cache->dataLen = datatogoLen;
+    list_add(packetbuf_list, cache);
+    cache=NULL;
 }
-int sendList(list_t bufList)
+//----------------------------------
+
+//--------------for outgoing packet --------------
+int buildBufflist(uint8_t *payload, int payload_len, rimeaddr_t nxthop)
 {
+    int flag=0;
+    int hdrlen;
+    int buflen;
+    int totlen;
+    packetbuf_clear();
+    packetbuf_copyfrom(payload,payload_len);
+    frame802154_t frm;
+    frm.fcf.src_addr_mode = FRAME802154_SHORTADDRMODE;
+    frm.fcf.dest_addr_mode = FRAME802154_SHORTADDRMODE;
+    frm.fcf.frame_type = FRAME802154_DATAFRAME;
+    frm.fcf.security_enabled = 0;
+    frm.fcf.frame_pending = 1;
+    frm.fcf.panid_compression = 0;
+    frm.fcf.frame_version = FRAME802154_IEEE802154_2003; // edited by dongbo huang: FRAME802154_IEEE802154_2006, another choice: FRAME802154_IEEE802154_2003
+    if(mac_dsn == 0)
+    {
+        mac_dsn = random_rand() % 256;
+    }
+    else
+    {
+        mac_dsn++;
+    }
+
+    frm.seq=mac_dsn;
+    frm.dest_pid = IEEE802154_PANID;
+    frm.src_pid = IEEE802154_PANID;
+    if (rimeaddr_cmp(&nxthop, &rimeaddr_null))
+    {
+        frm.fcf.ack_required = 0;
+        frm.dest_addr[0] = 0xFF;
+        frm.dest_addr[1] = 0xFF;
+    }
+    else
+    {
+        frm.fcf.ack_required = 1;
+        rimeaddr_copy((rimeaddr_t *)&frm.dest_addr, &nxthop);  
+    }
+
+    rimeaddr_copy((rimeaddr_t *)&frm.src_addr, &rimeaddr_node_addr);
+    frm.payload = packetbuf_dataptr();
+    frm.payload_len = packetbuf_datalen();
+    totlen = hdrlen + frm.payload_len;
+    //this is a test 
+    hdrlen = frame802154_hdrlen(&frm);
+    if(packetbuf_hdralloc(hdrlen))
+    {
+        //------------create the output buff, add it to the list---------------//
+        frame802154_create(&frm, packetbuf_hdrptr(), hdrlen);
+        list_add(packetbuf_hdrptr(),totlen);
+        //---------------------------------------------------------------------//
+        packetbuf_clear();
+        flag=1;
+    }
+    return flag;
+}
+int buildForwardInstructionList(void *payload, int payloadLen, rimeaddr_t nxthop)
+{
+    
+}
+void popList()
+{
+    packetbufListStruct_t *pop;
+    if(list_length(packetbuf_list) != 0)
+        pop = (packetbufListStruct_t *)list_pop(packetbuf_list);
+    sendPacket(pop->framebuf, pop->dataLen);
+    pop = NULL;
+}
+int sendPacket(void *datatogo, int datalen)
+{
+    int flag=0;
+    clock_time_t waitTime;
+    int backoffs=0;
+    int sendStatus;
+    waitTime = CLOCK_SECOND/NETSTACK_RDC_CHANNEL_CHECK_RATE;
+    while(sendStatus != RADIO_TX_OK)
+    {
+        while(cc2530_rf_driver.channel_clear() == 0)
+        {
+            waitTime = waitTime + (random_rand()%(backoffs * waitTime));
+            backoffs ++;
+            clock_wait(waitTime);
+        }
+        sendStatus = cc2530_rf_driver.send(datatogo, datalen);
+        if(status == RADIO_TX_OK)
+        {
+            backoffs = 0;
+            flag = 1;
+        }
+        else
+        {
+            PUTSTRING("FAILED TO SEND TRY AGAIN\r\n");
+            waitTime = waitTime + (random_rand()%(backoffs * waitTime));
+            backoffs++;
+            clock_wait(waitTime);
+        }
+    }
+    return flag;
+}
+clock_time_t default_timebase(void)
+{
+    clock_time_t time=0;
+    /* The retransmission time must be proportional to the channel
+       check interval of the underlying radio duty cycling layer.*/
+    //   time = NETSTACK_RDC.channel_check_interval();
+
+    /* If the radio duty cycle has no channel check interval (i.e., it
+       does not turn the radio off), we make the retransmission time
+       proportional to the configured MAC channel check rate.*/
+    if(time == 0) {
+        time = CLOCK_SECOND / NETSTACK_RDC_CHANNEL_CHECK_RATE;
+    }
+    return time;
 }
 //--------------------------------------------------
 
-//-----------------for sensor--------------------
+//-----------------sensing--------------------
 float getTemperature()
 {
     int rv;
@@ -242,25 +343,51 @@ float getTemperature()
 }
 int temperatureInpack(rimeaddr_t nxthop)
 {
+    cumt_temperature temperaturePkt;
+    float tmp;
+    uint8_t tmpInt;
+    uint8_t tmpPnt;
+    temperaturePkt.startAddr[0] = rimeaddr_node_addr.u8[0];
+    temperaturePkt.startAddr[1] = rimeaddr_node_addr.u8[1];
+    tmp= getTemperature();
+    tmpInt = (uint8_t)tmp;
+    tmpPnt = (uint8_t)(tmp*100)%100;
+    temperaturePkt.temperature[0] = tmpInt;
+    temperaturePkt.temperature[1] = tmpPnt;
+    buildBufflist((uint8_t *)&temperaturePkt, sizeof(temperaturePkt), upGoingNode);
 }
 //-----------------------------------------------
 
 //----------------------sleep mode handler----------------------
 void addSleepTimer(uint16_t sec)
 {
+    uint32_t sleepTimer = 0;
+    sleepTimer |= ST0;
+    sleepTimer |= (uint32_t)ST1 <<  8;
+    sleepTimer |= (uint32_t)ST2 << 16;
+    sleepTimer += ((uint32_t)sec * (uint32_t)32768);
+    ST2 = (uint8_t)(sleepTimer >> 16);
+    ST1 = (uint8_t)(sleepTimer >> 8);
+    ST0 = (uint8_t) sleepTimer;
 }
 void intoPM2Mode()
 {
+    int j;
+    int mode = 2;
+    SLEEPCMD &= 0xFC;
+    SLEEPCMD |= mode;
+    for(j=0;j<4;j++);
+    PCON = 0x01;    
 }
 
 //-----------sleep flag processing--------------//
 int process_getSleepCMD()
 {
-
+    return sleepingCMD;
 }
 void process_setSleepCMD(int state)
 {
-
+    sleepingCMD = state;
 }
 
 //----------------dongbo huang-----------------//
