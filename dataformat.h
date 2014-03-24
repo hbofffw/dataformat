@@ -28,24 +28,25 @@
 #include <string.h>
 
 
-//void utilReverseBuf(uint8_t* pBuf, uint8_t length);
-
-//#define st(x)      do { x } while (__LINE__ == -1)
-//#define UINT16_HTON(x)  st( utilReverseBuf((uint8*)&x, sizeof(uint16_t)); )
-
 
 
 //--------packetbuf list handling-----//
 typedef struct packetbufListStruct
 {
     struct packetbufListStruct *next;
-    void *framebuf;
+    void *packetbuf;
     int dataLen;
 }packetbufListStruct_t;
-
+typedef struct informationListStruct
+{
+    struct informationListStruct *next;
+    cumt_temperature tmpData;
+}informationListStruct_t;
 
 LIST(packetbuf_list);
-MEMB(packetbuf_memb, struct packetbufListStruct, 10);
+MEMB(packetbuf_memb, struct packetbufListStruct, 5);
+LIST(information_list);
+MEMB(information_memb, struct informationListStruct,10);
 //--------------------------------------
 
 //--------routing table ------------
@@ -99,20 +100,29 @@ int sensor_incomingPacketProcessing(void);
 int coord_incomingPacketProcessing(void);
 //-------------------------------------------------
 
-//------list processing-------------
-void toPacketbufList(void *f, int datatogoLen);    //data should be ready to be sent, should not be called directly
+//------list processing---------------------------
+//sensor
+//void toPacketbufList(void *f, int datatogoLen);    //data should be ready to be sent, should not be called directly
+int buildBufflist(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop);
+void sensor_popAndSendList(void);
+//coord
+void toInformationList(cumt_temperature tmp);
+void coord_popAndSendList(void);
 //----------------------------------
 
 //--------------for out going packet --------------
-int buildBufflist(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop);
-int buildForwardInstructionList(void *payload, int payloadLen, rimeaddr_t nxthop);
-void popList(void);
+
+//for sensor
 int sendPacket(void *datatogo, int datalen);
+int broadcastForward(uint8_t* overAir, int payloadLen);
 //csma time base
 clock_time_t default_timebase(void);
+//for coord
+int buildAndSendFrame(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop);
+int instructionSend(uint8_t instructin);
 //--------------------------------------------------
 
-//-----------------for sensor--------------------
+//-----------------for sensing--------------------
 float getTemperature();
 int temperatureInpack(rimeaddr_t nxthop);
 //-----------------------------------------------

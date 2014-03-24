@@ -27,8 +27,6 @@
 //#include "net/mac/csma.h"
 #include "net/rime/route.h" //for routing table
 
-
-
 #include "sys/ctimer.h"
 
 #include "lib/random.h"
@@ -137,7 +135,11 @@ int sensor_incomingPacketProcessing()
                         inst->hopCount++;
                         //editing start here
                         temperatureInpack(upGoingNode);
-                        buildBufflist((uint8_t *)inst, sizeof(*inst), NULL);
+                        if(buildBufflist((uint8_t *)inst, sizeof(*inst), rimeaddr_null))
+                        {
+                            helloRetrans_flag = 1;
+                        }
+                        inst = NULL;
                     }
                     if(sleepRetrans_flag == 0)
                     {
@@ -145,16 +147,13 @@ int sensor_incomingPacketProcessing()
                         inst = (cumt_instruction *)frame.payload;
                         if(inst->instructionType == SLEEPMSG)
                         {
-                            if(retrans((uint8_t *)inst,sizeof(inst),rimeaddr_null))
+                            if(broadcastForward(frame.payload, frame.payload_len));
                             {
                                 inst=NULL;
                                 sleepRetrans_flag = 1;  //should be 1
                                 flag = 1;
-                                /***reserved for sleep processing***/
                                 PUTSTRING("into sleep mode\r\n");
                                 process_setSleepCMD(1);
-                                sleepRetrans_flag = 0;
-                                helloRetrans_flag = 0;
                             }
                         }
                     }
@@ -162,39 +161,62 @@ int sensor_incomingPacketProcessing()
                 if(rimeaddr_cmp((rimeaddr_t *)&frame.dest_addr, &rimeaddr_node_addr))
                 {
                     PUTSTRING("some one send data on me");
-                    cumt_temperature *forwardTmp;
-                    forwardTmp = (cumt_temperature *)frame.payload;
-                    /*retrans(frame.payload,frame.payload_len,upGoingNode);*/
-
-                    flag = 1;
+                    if(buildBufflist(frame.payload, frame.payload_len, upGoingNode))
+                    {
+                        flag = 1;
+                    }
                 }
             }
         }            //data for me 
-
-        return flag;
+        packetbuf_clear();
     }
+    return flag;
 }
 
 int coord_incomingPacketProcessing(void)
 {
-
+    frame802154_t frame;
+    cumt_temperature* sensorData;
+    int len;
+    int flag=0;
+    len = cc2530_rf_driver.pending_packet();
+    if(len)
+    {
+        //PUTSTRING("packet income\r\n");
+        packetbuf_clear();
+        len = cc2530_rf_driver.read(packetbuf_dataptr(),PACKETBUF_SIZE);
+        packetbuf_set_datalen(len);
+        if(frame802154_parse(packetbuf_dataptr(), packetbuf_datalen(), &frame) && packetbuf_hdrreduce(packetbuf_datalen() - frame.payload_len))
+        {
+            if(rimeaddr_cmp((rimeaddr_t *)&frame.dest_addr, &rimeaddr_node_addr)&& !rimeaddr_cmp((rimeaddr_t *)&frame.src_addr, &rimeaddr_node_addr))
+            {
+                sensorData = (cumt_temperature *)frame.payload;
+                toInformationList(*sensorData);
+                packetbuf_clear();
+                flag = 1;
+            }
+        }
+    }
+    return flag;
 }
+
 //-----------------------------------------------
 
 //-------------------list processing-------------------------
 
-void toPacketbufList(void *f, int datatogoLen)
-{
-    packetbufListStruct_t *cache;
-    cache = memb_alloc(&packetbuf_memb);
-    cache->frameBuf = f;
-    cache->dataLen = datatogoLen;
-    list_add(packetbuf_list, cache);
-    cache=NULL;
-}
-//----------------------------------
+/*void toPacketbufList(void *f, int datatogoLen)*/
+/*{*/
+    /*packetbufListStruct_t *cache;*/
+    /*cache = memb_alloc(&packetbuf_memb);*/
+    /*cache->packetbuf = f;*/
+    /*cache->dataLen = datatogoLen;*/
+    /*list_add(packetbuf_list, cache);*/
+    /*cache=NULL;*/
+/*}*/
+/*//----------------------------------*/
 
 //--------------for outgoing packet --------------
+//sensor 
 int buildBufflist(uint8_t *payload, int payload_len, rimeaddr_t nxthop)
 {
     int flag=0;
@@ -243,7 +265,7 @@ int buildBufflist(uint8_t *payload, int payload_len, rimeaddr_t nxthop)
     hdrlen = frame802154_hdrlen(&frm);
     if(packetbuf_hdralloc(hdrlen))
     {
-        //------------create the output buff, add it to the list---------------//
+        //-----------------create the output buff, add it to the list-------------------//
         frame802154_create(&frm, packetbuf_hdrptr(), hdrlen);
         list_add(packetbuf_hdrptr(),totlen);
         //---------------------------------------------------------------------//
@@ -252,18 +274,41 @@ int buildBufflist(uint8_t *payload, int payload_len, rimeaddr_t nxthop)
     }
     return flag;
 }
-int buildForwardInstructionList(void *payload, int payloadLen, rimeaddr_t nxthop)
-{
-    
-}
-void popList()
+void sensor_popAndSendList()
 {
     packetbufListStruct_t *pop;
     if(list_length(packetbuf_list) != 0)
         pop = (packetbufListStruct_t *)list_pop(packetbuf_list);
-    sendPacket(pop->framebuf, pop->dataLen);
+    sendPacket(pop->packetbuf, pop->dataLen);
     pop = NULL;
 }
+
+//for coordinator to handel temperature packets
+void toInformationList(cumt_temperature tmp) 
+{
+    informationListStruct_t *cache;
+    cache = memb_alloc(&information_memb);
+    cache->tmpData = tmp;
+    list_add(information_list, cache);
+    cache = NULL;
+}
+void coord_popAndSendList(void)
+{
+    cumt_temperature sensorData;
+    informationListStruct_t *pop;
+    if(list_length(information_list != 0))
+        pop = (informationListStruct_t *)list_pop(information_list);
+    sensorData = pop->tmpData;
+    PUTSTRING("Frome node ");
+    PUTHEX(sensorData.startAddr[0]);
+    PUTHEX(sensorData.startAddr[1]);
+    PUTSTRING(": ");
+    printf("temperature=%d.%d\r\n", sensorData.temperature[0], sensorData.temperature[1]);
+    pop = NULL;
+}
+//------------------------------------------------------------------------------------
+
+//----------------------------for outgoing packet--------------------------------------
 int sendPacket(void *datatogo, int datalen)
 {
     int flag=0;
@@ -271,7 +316,7 @@ int sendPacket(void *datatogo, int datalen)
     int backoffs=0;
     int sendStatus;
     waitTime = CLOCK_SECOND/NETSTACK_RDC_CHANNEL_CHECK_RATE;
-    while(sendStatus != RADIO_TX_OK)
+    do
     {
         while(cc2530_rf_driver.channel_clear() == 0)
         {
@@ -280,10 +325,14 @@ int sendPacket(void *datatogo, int datalen)
             clock_wait(waitTime);
         }
         sendStatus = cc2530_rf_driver.send(datatogo, datalen);
-        if(status == RADIO_TX_OK)
+        if(backoffs >5)
+            backoffs=5;
+        if(sendStatus == RADIO_TX_OK)
         {
             backoffs = 0;
             flag = 1;
+            //indicate the status is OK
+            leds_on(LEDS_RED);
         }
         else
         {
@@ -292,9 +341,18 @@ int sendPacket(void *datatogo, int datalen)
             backoffs++;
             clock_wait(waitTime);
         }
-    }
+    }while(sendStatus != RADIO_TX_OK);
     return flag;
 }
+
+int broadcastForward(uint8_t* overAir, int payloadLen)
+{
+    if(buildAndSendFrame(overAir,payloadLen,rimeaddr_null));
+    return 1;
+    else
+        return 0;
+}
+
 clock_time_t default_timebase(void)
 {
     clock_time_t time=0;
@@ -310,6 +368,130 @@ clock_time_t default_timebase(void)
     }
     return time;
 }
+
+//for corrd
+int buildAndSendFrame(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop)
+{
+    int flag=0;
+    int len;
+    int status;
+
+    clock_time_t waitTime; 
+    int backoffs = 0;
+    packetbuf_clear();
+    packetbuf_copyfrom(payload,payloadLen);
+    frame802154_t frm;
+    frm.fcf.src_addr_mode = FRAME802154_SHORTADDRMODE;
+    frm.fcf.dest_addr_mode = FRAME802154_SHORTADDRMODE;
+    frm.fcf.frame_type = FRAME802154_DATAFRAME;
+    frm.fcf.security_enabled = 0;
+    frm.fcf.frame_pending = 1;
+    frm.fcf.panid_compression = 0;
+    frm.fcf.frame_version = FRAME802154_IEEE802154_2003; // edited by dongbo huang: FRAME802154_IEEE802154_2006, another choice: FRAME802154_IEEE802154_2003
+    if(mac_dsn == 0)
+    {
+        mac_dsn = random_rand() % 256;
+    }
+    else
+    {
+        mac_dsn++;
+    }
+    frm.seq=mac_dsn;
+    frm.dest_pid = IEEE802154_PANID;
+    frm.src_pid = IEEE802154_PANID;
+    if (rimeaddr_cmp(&nxthop, &rimeaddr_null))
+    {
+        frm.fcf.ack_required = 0;
+        frm.dest_addr[0] = 0xFF;
+        frm.dest_addr[1] = 0xFF;
+    }
+    else
+    {
+        frm.fcf.ack_required = 1;
+        rimeaddr_copy((rimeaddr_t *)&frm.dest_addr, &nxthop);  
+    }
+
+    rimeaddr_copy((rimeaddr_t *)&frm.src_addr, &rimeaddr_node_addr);
+    frm.payload = packetbuf_dataptr();
+    frm.payload_len = packetbuf_datalen();
+    //this is a test 
+    len = frame802154_hdrlen(&frm);
+    if(packetbuf_hdralloc(len))
+    {
+        frame802154_create(&frm, packetbuf_hdrptr(), len);
+        if (rimeaddr_cmp(&nxthop, &rimeaddr_null))
+        {
+            waitTime = CLOCK_SECOND/NETSTACK_RDC_CHANNEL_CHECK_RATE;
+            do
+            {
+                while(cc2530_rf_driver.channel_clear() == 0)
+                {
+                    waitTime = waitTime + (random_rand()%(backoffs * waitTime));
+                    backoffs ++;
+                    clock_wait(waitTime);
+                }
+                sendStatus = cc2530_rf_driver.send(datatogo, datalen);
+                if(backoffs >5)
+                    backoffs=5;
+                if(sendStatus == RADIO_TX_OK)
+                {
+                    backoffs = 0;
+                    flag = 1;
+                }
+                else
+                {
+                    PUTSTRING("FAILED TO SEND TRY AGAIN\r\n");
+                    waitTime = waitTime + (random_rand()%(backoffs * waitTime));
+                    backoffs++;
+                    clock_wait(waitTime);
+                }
+            }while(sendStatus != RADIO_TX_OK);
+        }
+        else
+        {
+            waitTime = CLOCK_SECOND/NETSTACK_RDC_CHANNEL_CHECK_RATE;
+            do
+            {
+                while(cc2530_rf_driver.channel_clear() == 0)
+                {
+                    waitTime = waitTime + (random_rand()%(backoffs * waitTime));
+                    backoffs ++;
+                    clock_wait(waitTime);
+                }
+                sendStatus = cc2530_rf_driver.send(datatogo, datalen);
+                if(backoffs >5)
+                    backoffs=5;
+                if(sendStatus == RADIO_TX_OK)
+                {
+                    backoffs = 0;
+                    flag = 1;
+                }
+                else
+                {
+                    PUTSTRING("FAILED TO SEND TRY AGAIN\r\n");
+                    waitTime = waitTime + (random_rand()%(backoffs * waitTime));
+                    backoffs++;
+                    clock_wait(waitTime);
+                }
+            }while(sendStatus != RADIO_TX_OK);
+        }
+    }
+    return flag;
+}
+int instructionSend(uint8_t instructin)
+{
+    static cumt_instruction instruc;
+    //    memcpy(instruc.srcAddr,rimeaddr_node_addr.u8,sizeof(rimeaddr_node_addr.u8));
+    instruc.srcAddr[0] = rimeaddr_node_addr.u8[0];
+    instruc.srcAddr[1] = rimeaddr_node_addr.u8[1];
+    instruc.hopCount = 0;
+    instruc.instructionType = instruction;
+    if(buildAndSendFrame((uint8_t *) &instruc,sizeof(instruc),  rimeaddr_null))
+        return 1;
+    else
+        return 0;
+}
+
 //--------------------------------------------------
 
 //-----------------sensing--------------------
@@ -372,6 +554,8 @@ void addSleepTimer(uint16_t sec)
 }
 void intoPM2Mode()
 {
+    helloRetrans_flag = 0;
+    sleepRetrans_flag = 0;
     int j;
     int mode = 2;
     SLEEPCMD &= 0xFC;

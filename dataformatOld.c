@@ -376,7 +376,8 @@ int sensor_incomingPktProcessing(void)
     frame802154_t frame;
     cumt_instruction* inst;
     int flag=0;                   //function return flag
-    int len;
+    int len=0;
+	len = cc2530_rf_driver.pending_packet();
     if(len)
     {
         packetbuf_clear();
@@ -479,10 +480,10 @@ int coord_incomingPktProcessing(void)
             if(rimeaddr_cmp((rimeaddr_t *)&frame.dest_addr, &rimeaddr_node_addr)&& !rimeaddr_cmp((rimeaddr_t *)&frame.src_addr, &rimeaddr_node_addr))
             {
                 sensorData = (cumt_temperature *)frame.payload;
-                PUTSTRING("Frome node ");
-                PUTHEX(sensorData->startAddr[0]);
-                PUTHEX(sensorData->startAddr[1]);
-                PUTSTRING(": ");
+                putstring("Frome node ");
+                puthex(sensorData->startAddr[0]);
+                puthex(sensorData->startAddr[1]);
+                putstring(": ");
 
                 printf("temperature=%d.%d \r\n",  sensorData->temperature[0], sensorData->temperature[1]);
                 packetbuf_clear();
