@@ -27,14 +27,26 @@
 #include <stdio.h> /* For printf() */
 #include <string.h>
 
+//---------------instruction and dataType-------------------------
+typedef struct {
+    uint8_t srcAddr[2];
+    uint8_t hopCount;
+    uint8_t instructionType;
+}cumt_instruction;
 
+
+typedef struct {
+    uint8_t startAddr[2];
+    uint8_t temperature[2];
+}cumt_temperature;
+//---------------------------------------------------------------
 
 
 //--------packetbuf list handling-----//
 typedef struct packetbufListStruct
 {
     struct packetbufListStruct *next;
-    void *packetbuf;
+    uint8_t packetbuf[PACKETBUF_SIZE];
     int dataLen;
 }packetbufListStruct_t;
 typedef struct informationListStruct
@@ -56,37 +68,24 @@ MEMB(information_memb, struct informationListStruct,10);
     //rimeaddr_t *addr;
 //}
 
-rimeaddr_t routringTable[3];
 
 //-----------------------------//
 
 
 
 //----------instruction and data indications----------------
-#define HELLOMSG 1
-#define SLEEPMSG 0
+#define HELLOMSG 0x00
+#define SLEEPMSG 0xff
 
-#define INFORMATION 1
-#define INSTRUCTION 0
+//#define INFORMATION 1
+//#define INSTRUCTION 0
 //----------------------------------------------------
 
 
 /***********************************************************************************
  * TYPEDEFS
  */
-//---------------instruction and dataType-------------------------
-typedef struct {
-    uint8_t srcAddr[2];
-    uint8_t hopCount;
-    uint8_t instructionType;
-}cumt_instruction;
 
-
-typedef struct {
-    uint8_t startAddr[2];
-    uint8_t temperature[2];
-}cumt_temperature;
-//---------------------------------------------------------------
 
 
 
@@ -104,10 +103,13 @@ int coord_incomingPacketProcessing(void);
 //sensor
 //void toPacketbufList(void *f, int datatogoLen);    //data should be ready to be sent, should not be called directly
 int buildBufflist(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop);
-void sensor_popAndSendList(void);
+int sensor_popAndSendItemOfList(void);
 //coord
 void toInformationList(cumt_temperature tmp);
-void coord_popAndSendList(void);
+void coord_printItemOfList(void);
+//sensor get the length of packetbuf_list
+int getpacketbufListLength(void);
+int getInformationListLength(void);
 //----------------------------------
 
 //--------------for out going packet --------------
@@ -124,7 +126,7 @@ int instructionSend(uint8_t instructin);
 
 //-----------------for sensing--------------------
 float getTemperature();
-int temperatureInpack(rimeaddr_t nxthop);
+void temperatureInpack(rimeaddr_t nxthop);
 //-----------------------------------------------
 
 //----------------------sleep mode handler----------------------

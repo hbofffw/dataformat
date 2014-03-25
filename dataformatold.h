@@ -76,7 +76,7 @@ void process_setSleepCMD(int state);
 
 
 
-#define HELLOMSG 0x11
+#define HELLOMSG 0x00
 #define SLEEPMSG 0xff
 
 //routing table

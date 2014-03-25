@@ -40,7 +40,7 @@
 #include <stdio.h> /* For printf() */
 #include <string.h>
 
-#define DEBUG 0
+#define DEBUG 0  //default :0 by dongbo huang
 #if DEBUG
 #include "debug.h"
 #define PUTSTRING(...) putstring(__VA_ARGS__)
@@ -69,7 +69,7 @@ static rimeaddr_t upGoingNode;
 //-------------------------
 
 //-------parameters for packetbuf list handle---------
-packetListStruct_t *packetBufCache;
+packetbufListStruct_t *packetBufCache;
 //----------------------------------------------------
 
 ////////////////////////////////////end of parameters setting////////////////////////////////////////////
@@ -131,6 +131,7 @@ int sensor_incomingPacketProcessing()
                     inst = (cumt_instruction*)frame.payload;
                     if(inst->instructionType == HELLOMSG)
                     {
+                        PUTSTRING("hello received!\r\n");
                         helloRetrans_flag = 1;   //has already forwarded hello instruction, next time when hello instruction comes, it will drop it 
                         inst->hopCount++;
                         //editing start here
@@ -141,20 +142,21 @@ int sensor_incomingPacketProcessing()
                         }
                         inst = NULL;
                     }
-                    if(sleepRetrans_flag == 0)
+                }
+                if(sleepRetrans_flag == 0)
+                {
+                    cumt_instruction *inst;
+                    inst = (cumt_instruction *)frame.payload;
+                    PUTSTRING("sleep cmd received! \r\n");
+                    if(inst->instructionType == SLEEPMSG)
                     {
-                        cumt_instruction *inst;
-                        inst = (cumt_instruction *)frame.payload;
-                        if(inst->instructionType == SLEEPMSG)
+                        if(broadcastForward(frame.payload, frame.payload_len));
                         {
-                            if(broadcastForward(frame.payload, frame.payload_len));
-                            {
-                                inst=NULL;
-                                sleepRetrans_flag = 1;  //should be 1
-                                flag = 1;
-                                PUTSTRING("into sleep mode\r\n");
-                                process_setSleepCMD(1);
-                            }
+                            inst=NULL;
+                            sleepRetrans_flag = 1;  //should be 1
+                            flag = 1;
+                            PUTSTRING("into sleep mode\r\n");
+                            process_setSleepCMD(1);
                         }
                     }
                 }
@@ -175,13 +177,13 @@ int sensor_incomingPacketProcessing()
 
 int coord_incomingPacketProcessing(void)
 {
-    frame802154_t frame;
-    cumt_temperature* sensorData;
     int len;
     int flag=0;
     len = cc2530_rf_driver.pending_packet();
     if(len)
     {
+        frame802154_t frame;
+        cumt_temperature* sensorData;
         //PUTSTRING("packet income\r\n");
         packetbuf_clear();
         len = cc2530_rf_driver.read(packetbuf_dataptr(),PACKETBUF_SIZE);
@@ -206,12 +208,12 @@ int coord_incomingPacketProcessing(void)
 
 /*void toPacketbufList(void *f, int datatogoLen)*/
 /*{*/
-    /*packetbufListStruct_t *cache;*/
-    /*cache = memb_alloc(&packetbuf_memb);*/
-    /*cache->packetbuf = f;*/
-    /*cache->dataLen = datatogoLen;*/
-    /*list_add(packetbuf_list, cache);*/
-    /*cache=NULL;*/
+/*packetbufListStruct_t *cache;*/
+/*cache = memb_alloc(&packetbuf_memb);*/
+/*cache->packetbuf = f;*/
+/*cache->dataLen = datatogoLen;*/
+/*list_add(packetbuf_list, cache);*/
+/*cache=NULL;*/
 /*}*/
 /*//----------------------------------*/
 
@@ -221,8 +223,6 @@ int buildBufflist(uint8_t *payload, int payload_len, rimeaddr_t nxthop)
 {
     int flag=0;
     int hdrlen;
-    int buflen;
-    int totlen;
     packetbuf_clear();
     packetbuf_copyfrom(payload,payload_len);
     frame802154_t frm;
@@ -260,55 +260,87 @@ int buildBufflist(uint8_t *payload, int payload_len, rimeaddr_t nxthop)
     rimeaddr_copy((rimeaddr_t *)&frm.src_addr, &rimeaddr_node_addr);
     frm.payload = packetbuf_dataptr();
     frm.payload_len = packetbuf_datalen();
-    totlen = hdrlen + frm.payload_len;
-    //this is a test 
     hdrlen = frame802154_hdrlen(&frm);
     if(packetbuf_hdralloc(hdrlen))
     {
         //-----------------create the output buff, add it to the list-------------------//
+        //for list item operation and mem allocation
+        packetbufListStruct_t *cache;
+        cache = memb_alloc(&packetbuf_memb);
+        //
         frame802154_create(&frm, packetbuf_hdrptr(), hdrlen);
-        list_add(packetbuf_hdrptr(),totlen);
+        int i;
+        uint8_t *bufTmp;
+        //memset(bufTmp, 0, packetbuf_totlen());
+        bufTmp = (uint8_t *)packetbuf_hdrptr();
+        for(i = 0; i<packetbuf_totlen(); i++)
+        {
+            cache->packetbuf[i] = bufTmp[i]; 
+        }
+        cache->dataLen = packetbuf_totlen();
+        list_add(packetbuf_list,cache);
         //---------------------------------------------------------------------//
         packetbuf_clear();
         flag=1;
     }
     return flag;
 }
-void sensor_popAndSendList()
+
+//sensor send one item in the list
+int sensor_popAndSendItemOfList()
 {
+    int flag = 0;
     packetbufListStruct_t *pop;
     if(list_length(packetbuf_list) != 0)
         pop = (packetbufListStruct_t *)list_pop(packetbuf_list);
-    sendPacket(pop->packetbuf, pop->dataLen);
-    pop = NULL;
+    if(sendPacket(pop->packetbuf, pop->dataLen))
+    {
+        flag = 1;
+    }
+    /*pop = NULL;*/
+    memb_free(&packetbuf_memb, pop);
+    return flag;
 }
 
-//for coordinator to handel temperature packets
+//for coordinator to handel temperature packets, CAN NOT be directly called
 void toInformationList(cumt_temperature tmp) 
 {
     informationListStruct_t *cache;
     cache = memb_alloc(&information_memb);
     cache->tmpData = tmp;
     list_add(information_list, cache);
-    cache = NULL;
 }
-void coord_popAndSendList(void)
+
+//print item from list
+void coord_printItemOfList(void)
 {
     cumt_temperature sensorData;
     informationListStruct_t *pop;
-    if(list_length(information_list != 0))
+    if(list_length(information_list) != 0)
         pop = (informationListStruct_t *)list_pop(information_list);
     sensorData = pop->tmpData;
-    PUTSTRING("Frome node ");
-    PUTHEX(sensorData.startAddr[0]);
-    PUTHEX(sensorData.startAddr[1]);
-    PUTSTRING(": ");
+    putstring("Frome node ");
+    puthex(sensorData.startAddr[0]);
+    puthex(sensorData.startAddr[1]);
+    putstring(": ");
     printf("temperature=%d.%d\r\n", sensorData.temperature[0], sensorData.temperature[1]);
-    pop = NULL;
+    memb_free(&information_memb, pop);
+}
+
+
+//for sensor or coord know the length of corresponding list
+int getpacketbufListLength(void)
+{
+    return list_length(packetbuf_list);
+}
+int getInformationListLength(void)
+{
+    return list_length(information_list);
 }
 //------------------------------------------------------------------------------------
 
 //----------------------------for outgoing packet--------------------------------------
+//CAN NOT be directly called
 int sendPacket(void *datatogo, int datalen)
 {
     int flag=0;
@@ -344,11 +376,11 @@ int sendPacket(void *datatogo, int datalen)
     }while(sendStatus != RADIO_TX_OK);
     return flag;
 }
-
+//CAN NOT be directly called
 int broadcastForward(uint8_t* overAir, int payloadLen)
 {
-    if(buildAndSendFrame(overAir,payloadLen,rimeaddr_null));
-    return 1;
+    if(buildAndSendFrame(overAir,payloadLen,rimeaddr_null))
+        return 1;
     else
         return 0;
 }
@@ -374,7 +406,7 @@ int buildAndSendFrame(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop)
 {
     int flag=0;
     int len;
-    int status;
+    int sendStatus;
 
     clock_time_t waitTime; 
     int backoffs = 0;
@@ -430,7 +462,7 @@ int buildAndSendFrame(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop)
                     backoffs ++;
                     clock_wait(waitTime);
                 }
-                sendStatus = cc2530_rf_driver.send(datatogo, datalen);
+                sendStatus = cc2530_rf_driver.send(packetbuf_hdrptr(), packetbuf_totlen());
                 if(backoffs >5)
                     backoffs=5;
                 if(sendStatus == RADIO_TX_OK)
@@ -458,7 +490,7 @@ int buildAndSendFrame(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop)
                     backoffs ++;
                     clock_wait(waitTime);
                 }
-                sendStatus = cc2530_rf_driver.send(datatogo, datalen);
+                sendStatus = cc2530_rf_driver.send(packetbuf_hdrptr(), packetbuf_totlen());
                 if(backoffs >5)
                     backoffs=5;
                 if(sendStatus == RADIO_TX_OK)
@@ -478,7 +510,7 @@ int buildAndSendFrame(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop)
     }
     return flag;
 }
-int instructionSend(uint8_t instructin)
+int instructionSend(uint8_t instruction)
 {
     static cumt_instruction instruc;
     //    memcpy(instruc.srcAddr,rimeaddr_node_addr.u8,sizeof(rimeaddr_node_addr.u8));
@@ -523,7 +555,7 @@ float getTemperature()
         return 0;
     }
 }
-int temperatureInpack(rimeaddr_t nxthop)
+void temperatureInpack(rimeaddr_t nxthop)
 {
     cumt_temperature temperaturePkt;
     float tmp;
