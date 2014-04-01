@@ -103,7 +103,7 @@ typedef struct {
 	uint8_t startAddr[2];
 	//uint8_t finalAddr[2];
 	uint8_t temperature[2];
-}cumt_temperature;
+}cumt_information;
 
 
 /**************************************From Monitoring Software************************/

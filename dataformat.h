@@ -27,6 +27,16 @@
 #include <stdio.h> /* For printf() */
 #include <string.h>
 
+//----------instruction and data indications----------------
+#define HELLOMSG 0x00 
+#define SLEEPMSG 0xff      //here can be modified to adjust the sleep timer
+
+//#define INFORMATION 1
+//#define INSTRUCTION 0
+//----------------------------------------------------
+
+
+
 //---------------instruction and dataType-------------------------
 typedef struct {
     uint8_t srcAddr[2];
@@ -38,53 +48,53 @@ typedef struct {
 typedef struct {
     uint8_t startAddr[2];
     uint8_t temperature[2];
-}cumt_temperature;
+    uint8_t vdd[2];
+}cumt_information;
 //---------------------------------------------------------------
 
 
-//--------packetbuf list handling-----//
+//-------------------------------------list handleing-----------------------------
+//------------------------routing table ---------------------------
+typedef struct routingTableStruct {
+    struct routingTableStruct *next;
+	int8_t rssiValue;
+	uint8_t hopcount;
+    rimeaddr_t *addr;
+}routingTableStruct_t;
+
+//---------------------------------------------------------------
+
+
+
+//-----------------------buf struct------------------------------
 typedef struct packetbufListStruct
 {
     struct packetbufListStruct *next;
     uint8_t packetbuf[PACKETBUF_SIZE];
     int dataLen;
 }packetbufListStruct_t;
+
+//----------------------uploading struct-------------------------
 typedef struct informationListStruct
 {
     struct informationListStruct *next;
-    cumt_temperature tmpData;
+    cumt_information tmpData;
 }informationListStruct_t;
 
+
+
+//buf list
 LIST(packetbuf_list);
 MEMB(packetbuf_memb, struct packetbufListStruct, 5);
+
+//for sink node communicating with computer
 LIST(information_list);
 MEMB(information_memb, struct informationListStruct,10);
-//--------------------------------------
 
-//--------routing table ------------
-//typedef struct routingTableStruct
-//{
-    //struct routingTableStruct *next;
-    //rimeaddr_t *addr;
-//}
-
-
-//-----------------------------//
-
-
-
-//----------instruction and data indications----------------
-#define HELLOMSG 0x00
-#define SLEEPMSG 0xff
-
-//#define INFORMATION 1
-//#define INSTRUCTION 0
-//----------------------------------------------------
-
-
-/***********************************************************************************
- * TYPEDEFS
- */
+//routing table list
+LIST(routingTable_list);
+MEMB(routingTable_memb, struct routingTableStruct,4);
+//----------------------------------------------------------------------------------
 
 
 
@@ -96,7 +106,7 @@ int is_myAddr(uint8_t *addr);
 
 //----------------for input method--------------------
 int sensor_incomingPacketProcessing(void);
-int coord_incomingPacketProcessing(void);
+int sink_incomingPacketProcessing(void);
 //-------------------------------------------------
 
 //------list processing---------------------------
@@ -104,29 +114,30 @@ int coord_incomingPacketProcessing(void);
 //void toPacketbufList(void *f, int datatogoLen);    //data should be ready to be sent, should not be called directly
 int buildBufflist(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop);
 int sensor_popAndSendItemOfList(void);
-//coord
-void toInformationList(cumt_temperature tmp);
-void coord_printItemOfList(void);
-//sensor get the length of packetbuf_list
 int getpacketbufListLength(void);
+//sink
+void toInformationList(cumt_information tmp);
+void sink_printItemOfList(void);
 int getInformationListLength(void);
+
 //----------------------------------
 
 //--------------for out going packet --------------
 
-//for sensor
+//for sensor to handle the sleep instruction 
 int sendPacket(void *datatogo, int datalen);
 int broadcastForward(uint8_t* overAir, int payloadLen);
 //csma time base
 clock_time_t default_timebase(void);
-//for coord
+//for sink
 int buildAndSendFrame(uint8_t* payload, int payloadLen,  rimeaddr_t nxthop);
 int instructionSend(uint8_t instructin);
 //--------------------------------------------------
 
 //-----------------for sensing--------------------
 float getTemperature();
-void temperatureInpack(rimeaddr_t nxthop);
+float getVoltage();
+void dataInpack(rimeaddr_t nxthop);
 //-----------------------------------------------
 
 //----------------------sleep mode handler----------------------

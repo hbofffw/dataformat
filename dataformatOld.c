@@ -297,7 +297,7 @@ float getTemperature()
 int temperatureDataSend(rimeaddr_t nxthop)
 {
     //get_self_addr();
-    cumt_temperature temperaturePkt;
+    cumt_information temperaturePkt;
     float tmp;
     uint8_t tmpInt;
     uint8_t tmpPnt;
@@ -447,8 +447,8 @@ int sensor_incomingPktProcessing(void)
             if(rimeaddr_cmp((rimeaddr_t *)&frame.dest_addr, &rimeaddr_node_addr))
             {
                 PUTSTRING("some one send data on me");
-                cumt_temperature *forwardTmp;
-                forwardTmp = (cumt_temperature *)frame.payload;
+                cumt_information *forwardTmp;
+                forwardTmp = (cumt_information *)frame.payload;
                 retrans(frame.payload,frame.payload_len,upGoingNode);
                 flag = 1;
             }
@@ -461,7 +461,7 @@ int sensor_incomingPktProcessing(void)
 int coord_incomingPktProcessing(void)
 {
     frame802154_t frame;
-    cumt_temperature* sensorData;
+    cumt_information* sensorData;
     int len;
     //----handle temperature---
     /*unsigned short tmpInt;*/
@@ -479,7 +479,7 @@ int coord_incomingPktProcessing(void)
         {
             if(rimeaddr_cmp((rimeaddr_t *)&frame.dest_addr, &rimeaddr_node_addr)&& !rimeaddr_cmp((rimeaddr_t *)&frame.src_addr, &rimeaddr_node_addr))
             {
-                sensorData = (cumt_temperature *)frame.payload;
+                sensorData = (cumt_information *)frame.payload;
                 putstring("Frome node ");
                 puthex(sensorData->startAddr[0]);
                 puthex(sensorData->startAddr[1]);
