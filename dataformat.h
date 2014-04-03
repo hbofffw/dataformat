@@ -37,7 +37,7 @@
 
 
 
-//---------------instruction and dataType-------------------------
+//---------------instruction and dataType----------------------
 typedef struct {
     uint8_t srcAddr[2];
     uint8_t hopCount;
@@ -50,15 +50,15 @@ typedef struct {
     uint8_t temperature[2];
     uint8_t vdd[2];
 }cumt_information;
-//---------------------------------------------------------------
+//-------------------------------------------------------------
 
 
 //-------------------------------------list handleing-----------------------------
 //------------------------routing table ---------------------------
 typedef struct routingTableStruct {
     struct routingTableStruct *next;
-	int8_t rssiValue;
-	uint8_t hopcount;
+        int8_t rssiValue;
+        uint8_t hopcount;
     rimeaddr_t *addr;
 }routingTableStruct_t;
 
@@ -93,8 +93,8 @@ MEMB(information_memb, struct informationListStruct,10);
 
 //routing table list
 LIST(routingTable_list);
-MEMB(routingTable_memb, struct routingTableStruct,4);
-//----------------------------------------------------------------------------------
+MEMB(routingTable_memb, struct routingTableStruct,3);
+//---------------------------end of list handling------------------------------
 
 
 
@@ -120,7 +120,7 @@ void toInformationList(cumt_information tmp);
 void sink_printItemOfList(void);
 int getInformationListLength(void);
 
-//----------------------------------
+//---------------------------------------------------
 
 //--------------for out going packet --------------
 
@@ -137,7 +137,7 @@ int instructionSend(uint8_t instructin);
 //-----------------for sensing--------------------
 float getTemperature();
 float getVoltage();
-void dataInpack(rimeaddr_t nxthop);
+void sensor_dataInpack(rimeaddr_t nxthop);
 //-----------------------------------------------
 
 //----------------------sleep mode handler----------------------
@@ -148,6 +148,5 @@ void intoPM2Mode();
 static int sleepingCMD=0;
 int process_getSleepCMD();
 void process_setSleepCMD(int state);
-//----------------dongbo huang-----------------//
 
 //--------------------------------------------------------------

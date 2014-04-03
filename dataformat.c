@@ -597,7 +597,7 @@ float getVoltage()
 
 
 //-----------------------sensor add data packet to the list--------------------------------------
-void dataInpack(rimeaddr_t nxthop)
+void sensor_dataInpack(rimeaddr_t nxthop)
 {
     cumt_information temperaturePkt;
     float tmp;
